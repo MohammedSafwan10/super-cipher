@@ -272,7 +272,10 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => setMode("encrypt")}
+          onClick={() => {
+            setMode("encrypt");
+            setResult("");
+          }}
           className={cn(
             "px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all",
             mode === "encrypt"
@@ -286,7 +289,10 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => setMode("decrypt")}
+          onClick={() => {
+            setMode("decrypt");
+            setResult("");
+          }}
           className={cn(
             "px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all",
             mode === "decrypt"

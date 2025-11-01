@@ -107,25 +107,25 @@ export class HillCipher {
   encrypt(plaintext: string, keyMatrix: number[][]): string {
     const size = keyMatrix.length;
 
-    // Encode each character as a 3-letter sequence to preserve ALL data
-    // Each char code is converted to base-26 representation using letters A-Z
-    let encoded = "";
+    // Convert to hex to preserve ALL characters safely
+    // Each byte becomes 2 hex chars (0-9, A-F) which are safe for Hill cipher
+    let hex = "";
     for (let i = 0; i < plaintext.length; i++) {
       const code = plaintext.charCodeAt(i);
-      // Convert to 3-letter sequence (supports char codes 0-17575)
-      const a = Math.floor(code / 676);
-      const b = Math.floor((code % 676) / 26);
-      const c = code % 26;
-      encoded += String.fromCharCode(65 + a) +
-                 String.fromCharCode(65 + b) +
-                 String.fromCharCode(65 + c);
+      hex += code.toString(16).padStart(4, "0").toUpperCase(); // 4 hex chars per UTF-16 char
     }
 
-    // Store original length for padding removal
-    const originalLength = encoded.length;
+    // Convert hex to alphabet (0-9A-F → A-P)
+    const alphabetized = hex.split("").map(c => {
+      if (c >= "0" && c <= "9") return String.fromCharCode(65 + parseInt(c));
+      else return String.fromCharCode(65 + 10 + (c.charCodeAt(0) - 65));
+    }).join("");
 
-    // Pad text if needed
-    const paddedText = encoded + "X".repeat((size - (encoded.length % size)) % size);
+    // Store original length for padding removal
+    const originalLength = alphabetized.length;
+
+    // Pad to make divisible by matrix size
+    const paddedText = alphabetized + "X".repeat((size - (alphabetized.length % size)) % size);
     const paddingLength = paddedText.length - originalLength;
 
     let result = "";
@@ -169,14 +169,18 @@ export class HillCipher {
       result = result.substring(0, result.length - paddingLength);
     }
 
-    // Decode 3-letter sequences back to original characters
+    // Convert alphabet back to hex (A-P → 0-9A-F)
+    const hex = result.split("").map(c => {
+      const val = c.charCodeAt(0) - 65;
+      if (val < 10) return val.toString();
+      else return String.fromCharCode(65 + val - 10);
+    }).join("");
+
+    // Convert hex back to original string
     let decoded = "";
-    for (let i = 0; i < result.length; i += 3) {
-      const a = result.charCodeAt(i) - 65;
-      const b = result.charCodeAt(i + 1) - 65;
-      const c = result.charCodeAt(i + 2) - 65;
-      const charCode = a * 676 + b * 26 + c;
-      decoded += String.fromCharCode(charCode);
+    for (let i = 0; i < hex.length; i += 4) {
+      const hexChar = hex.substring(i, i + 4);
+      decoded += String.fromCharCode(parseInt(hexChar, 16));
     }
 
     return decoded;

@@ -26,10 +26,12 @@ export class EncryptionManager {
     switch (mode) {
       case "high":
         // 5 layers for maximum security
-        return ["aes", "rsa", "hill", "vigenere", "blowfish"];
+        // Note: Hill cipher removed - incompatible with binary data from RSA/AES
+        return ["aes", "rsa", "vigenere", "blowfish", "caesar"];
       case "balanced":
         // 3 layers for balanced performance
-        return ["aes", "hill", "vigenere"];
+        // Note: Hill cipher removed - incompatible with AES base64 output
+        return ["aes", "vigenere", "blowfish"];
       case "lightweight":
         // 2 layers for speed
         return ["caesar", "vigenere"];
