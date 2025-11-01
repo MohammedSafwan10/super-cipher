@@ -149,14 +149,20 @@ export class EncryptionManager {
         case "aes":
           return this.aes.decrypt(ciphertext, key, mode);
         case "rsa":
+          if (!key || key.trim() === "") {
+            throw new Error("RSA key is missing. Please regenerate keys.");
+          }
           try {
             const keypair = JSON.parse(key);
             if (!keypair.publicKey || !keypair.privateKey) {
-              throw new Error("Invalid RSA key format");
+              throw new Error("RSA key is incomplete. Please regenerate keys.");
             }
             return this.rsa.decrypt(ciphertext, keypair.privateKey);
           } catch (e) {
-            throw new Error("Invalid RSA key format: must be valid JSON with publicKey and privateKey");
+            if (e instanceof SyntaxError) {
+              throw new Error("RSA key is corrupted. Please regenerate keys.");
+            }
+            throw e;
           }
         case "hill":
           const matrix = this.hill.stringToKey(key);
@@ -260,10 +266,14 @@ export class EncryptionManager {
     mode: SecurityMode = "high"
   ): Promise<{ decrypted: string; metrics: PerformanceMetrics[]; layers: EncryptionLayer[] }> {
     // Validate all required keys exist
+    const missingKeys: string[] = [];
     for (const algorithm of algorithms) {
       if (!keys[algorithm]) {
-        throw new Error(`Missing decryption key for algorithm: ${algorithm}`);
+        missingKeys.push(algorithm.toUpperCase());
       }
+    }
+    if (missingKeys.length > 0) {
+      throw new Error(`Missing keys for: ${missingKeys.join(", ")}. Click "Clear" and regenerate all keys.`);
     }
 
     let decrypted = ciphertext;

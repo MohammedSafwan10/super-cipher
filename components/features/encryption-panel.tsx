@@ -45,16 +45,33 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
       // Generate keys one by one to show progress (RSA can be slow)
       for (const algorithm of selectedAlgorithms) {
-        newKeys[algorithm] = await encryptionManager.generateKey(algorithm, securityMode);
-        // Small delay to allow UI updates
-        await new Promise(resolve => setTimeout(resolve, 50));
+        try {
+          newKeys[algorithm] = await encryptionManager.generateKey(algorithm, securityMode);
+          // Small delay to allow UI updates
+          await new Promise(resolve => setTimeout(resolve, 50));
+        } catch (error) {
+          console.error(`Failed to generate ${algorithm} key:`, error);
+          throw new Error(`Failed to generate ${algorithm.toUpperCase()} key: ${error}`);
+        }
+      }
+
+      // Verify all keys were generated
+      const missingKeys = selectedAlgorithms.filter(algo => !newKeys[algo]);
+      if (missingKeys.length > 0) {
+        throw new Error(`Some keys failed to generate: ${missingKeys.join(", ").toUpperCase()}`);
       }
 
       setKeys(newKeys);
       setIsSecurityModeLocked(true); // Lock security mode after keys are generated
+
+      // Show success message
+      const keyCount = Object.keys(newKeys).length;
+      console.log(`✅ Successfully generated ${keyCount} keys for ${securityMode} mode`);
     } catch (error) {
       console.error("Key generation failed:", error);
-      alert(`Failed to generate keys: ${error}`);
+      alert(`❌ Key generation failed!\n\n${error}\n\nPlease try again.`);
+      // Clear partial keys
+      setKeys({});
     } finally {
       setIsGeneratingKeys(false);
     }
@@ -68,6 +85,17 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
     if (Object.keys(keys).length === 0) {
       alert("Please generate encryption keys first");
+      return;
+    }
+
+    // Verify all required keys exist
+    const missingKeys = selectedAlgorithms.filter(algo => !keys[algo]);
+    if (missingKeys.length > 0) {
+      alert(
+        `❌ Missing keys for: ${missingKeys.join(", ").toUpperCase()}\n\n` +
+        `Current mode requires ${selectedAlgorithms.length} keys, but only ${Object.keys(keys).length} found.\n\n` +
+        `Click "Clear" and regenerate all keys.`
+      );
       return;
     }
 
@@ -176,7 +204,21 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
       }
     } catch (error) {
       console.error("Decryption failed:", error);
-      alert(`Decryption failed: ${error}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Show helpful message for common issues
+      if (errorMsg.includes("Missing keys") || errorMsg.includes("RSA key")) {
+        alert(
+          `❌ ${errorMsg}\n\n` +
+          `💡 Solution:\n` +
+          `1. Click the "Clear" button below\n` +
+          `2. Generate keys again\n` +
+          `3. Re-encrypt your text\n` +
+          `4. Then decrypt with the new keys`
+        );
+      } else {
+        alert(`Decryption failed: ${errorMsg}`);
+      }
     } finally {
       setIsProcessing(false);
     }
