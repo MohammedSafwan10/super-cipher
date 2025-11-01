@@ -1,11 +1,22 @@
 export type SecurityMode = "high" | "balanced" | "lightweight";
 
-export type CipherAlgorithm = "aes" | "rsa" | "hill" | "vigenere" | "blowfish";
+export type CipherAlgorithm = "aes" | "rsa" | "hill" | "vigenere" | "blowfish" | "caesar";
 
 export interface EncryptionConfig {
   algorithm: CipherAlgorithm;
   securityMode: SecurityMode;
   key?: string;
+}
+
+export interface EncryptionLayer {
+  algorithm: CipherAlgorithm;
+  key: string;
+  order: number;
+}
+
+export interface LayeredEncryptionConfig {
+  layers: CipherAlgorithm[];
+  securityMode: SecurityMode;
 }
 
 export interface EncryptionResult {
@@ -14,6 +25,7 @@ export interface EncryptionResult {
   algorithm: CipherAlgorithm;
   timestamp: number;
   performanceMetrics: PerformanceMetrics;
+  layers?: EncryptionLayer[];
 }
 
 export interface DecryptionResult {
@@ -21,6 +33,7 @@ export interface DecryptionResult {
   algorithm: CipherAlgorithm;
   timestamp: number;
   performanceMetrics: PerformanceMetrics;
+  layers?: EncryptionLayer[];
 }
 
 export interface PerformanceMetrics {
@@ -38,4 +51,5 @@ export interface HistoryEntry {
   inputSize: number;
   metrics: PerformanceMetrics;
   success: boolean;
+  layers?: EncryptionLayer[];
 }

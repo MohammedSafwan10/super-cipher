@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { motion } from "framer-motion";
-import { Lock, Unlock, Key, Download, Upload, Sparkles } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Lock, Unlock, Key, Download, Shield, Layers } from "lucide-react";
 import { EncryptionManager } from "@/lib/crypto/encryption-manager";
-import { CipherAlgorithm, SecurityMode } from "@/lib/crypto/types";
+import { CipherAlgorithm, SecurityMode, EncryptionLayer } from "@/lib/crypto/types";
 import { cn, formatTime, formatBytes } from "@/lib/utils";
+import { EncryptionFlow } from "./encryption-flow";
+import { KeyGenerationInfo } from "./key-generation-info";
 
 const encryptionManager = new EncryptionManager();
 
@@ -16,35 +18,34 @@ interface EncryptionPanelProps {
 
 export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: EncryptionPanelProps) {
   const [mode, setMode] = useState<"encrypt" | "decrypt">("encrypt");
-  const [algorithm, setAlgorithm] = useState<CipherAlgorithm>("aes");
   const [securityMode, setSecurityMode] = useState<SecurityMode>("balanced");
   const [plaintext, setPlaintext] = useState("");
   const [ciphertext, setCiphertext] = useState("");
-  const [key, setKey] = useState("");
+  const [keys, setKeys] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState("");
+  const [layers, setLayers] = useState<EncryptionLayer[]>([]);
+  const [showLayerInfo, setShowLayerInfo] = useState(true);
 
-  const algorithms: { value: CipherAlgorithm; label: string; description: string }[] = [
-    { value: "aes", label: "AES", description: "Advanced Encryption Standard" },
-    { value: "rsa", label: "RSA", description: "Rivest-Shamir-Adleman" },
-    { value: "blowfish", label: "Blowfish", description: "Fast Block Cipher" },
-    { value: "vigenere", label: "Vigenère", description: "Classical Polyalphabetic" },
-    { value: "hill", label: "Hill", description: "Matrix-based Cipher" },
+  const securityModes: { value: SecurityMode; label: string; description: string; layers: number }[] = [
+    { value: "high", label: "High Security", description: "5 layers - Maximum protection", layers: 5 },
+    { value: "balanced", label: "Balanced", description: "3 layers - Optimal performance", layers: 3 },
+    { value: "lightweight", label: "Lightweight", description: "2 layers - Fast encryption", layers: 2 },
   ];
 
-  const securityModes: { value: SecurityMode; label: string; description: string }[] = [
-    { value: "high", label: "High Security", description: "Maximum protection, slower" },
-    { value: "balanced", label: "Balanced", description: "Good security, reasonable speed" },
-    { value: "lightweight", label: "Lightweight", description: "Fast, basic protection" },
-  ];
+  // Get recommended algorithms for current security mode
+  const selectedAlgorithms = encryptionManager.getRecommendedAlgorithms(securityMode);
 
-  const generateKey = () => {
+  const generateKeys = () => {
     try {
-      const newKey = encryptionManager.generateKey(algorithm, securityMode);
-      setKey(newKey);
+      const newKeys: Record<string, string> = {};
+      selectedAlgorithms.forEach((algorithm) => {
+        newKeys[algorithm] = encryptionManager.generateKey(algorithm, securityMode);
+      });
+      setKeys(newKeys);
     } catch (error) {
       console.error("Key generation failed:", error);
-      alert(`Failed to generate key: ${error}`);
+      alert(`Failed to generate keys: ${error}`);
     }
   };
 
@@ -54,30 +55,51 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
       return;
     }
 
-    if (!key.trim()) {
-      alert("Please generate or enter a key");
+    if (Object.keys(keys).length === 0) {
+      alert("Please generate encryption keys first");
       return;
     }
 
     setIsProcessing(true);
     try {
-      const result = await encryptionManager.encrypt(plaintext, algorithm, key, securityMode);
+      const result = await encryptionManager.multiLayerEncrypt(
+        plaintext,
+        selectedAlgorithms,
+        securityMode
+      );
+
       setCiphertext(result.encrypted);
       setResult(result.encrypted);
+      setLayers(result.layers);
+      setKeys(result.keys);
+
+      // Calculate combined metrics
+      const totalTime = result.metrics.reduce((sum, m) => sum + m.encryptionTime, 0);
+      const maxMemory = Math.max(...result.metrics.map((m) => m.memoryUsed));
+      const avgThroughput =
+        result.metrics.reduce((sum, m) => sum + m.throughput, 0) / result.metrics.length;
+
+      const combinedMetrics = {
+        encryptionTime: totalTime,
+        memoryUsed: maxMemory,
+        dataSize: new Blob([plaintext]).size,
+        throughput: avgThroughput,
+      };
 
       if (onPerformanceUpdate) {
-        onPerformanceUpdate(result.performanceMetrics);
+        onPerformanceUpdate(combinedMetrics);
       }
 
       if (onHistoryAdd) {
         onHistoryAdd({
           id: Date.now().toString(),
           type: "encrypt",
-          algorithm,
-          timestamp: result.timestamp,
+          algorithm: selectedAlgorithms[0], // Primary algorithm
+          timestamp: Date.now(),
           inputSize: new Blob([plaintext]).size,
-          metrics: result.performanceMetrics,
+          metrics: combinedMetrics,
           success: true,
+          layers: result.layers,
         });
       }
     } catch (error) {
@@ -94,30 +116,51 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
       return;
     }
 
-    if (!key.trim()) {
-      alert("Please enter the decryption key");
+    if (Object.keys(keys).length === 0) {
+      alert("Please enter the decryption keys");
       return;
     }
 
     setIsProcessing(true);
     try {
-      const result = await encryptionManager.decrypt(ciphertext, algorithm, key, securityMode);
+      const result = await encryptionManager.multiLayerDecrypt(
+        ciphertext,
+        selectedAlgorithms,
+        keys,
+        securityMode
+      );
+
       setPlaintext(result.decrypted);
       setResult(result.decrypted);
+      setLayers(result.layers);
+
+      // Calculate combined metrics
+      const totalTime = result.metrics.reduce((sum, m) => sum + m.encryptionTime, 0);
+      const maxMemory = Math.max(...result.metrics.map((m) => m.memoryUsed));
+      const avgThroughput =
+        result.metrics.reduce((sum, m) => sum + m.throughput, 0) / result.metrics.length;
+
+      const combinedMetrics = {
+        encryptionTime: totalTime,
+        memoryUsed: maxMemory,
+        dataSize: new Blob([ciphertext]).size,
+        throughput: avgThroughput,
+      };
 
       if (onPerformanceUpdate) {
-        onPerformanceUpdate(result.performanceMetrics);
+        onPerformanceUpdate(combinedMetrics);
       }
 
       if (onHistoryAdd) {
         onHistoryAdd({
           id: Date.now().toString(),
           type: "decrypt",
-          algorithm,
-          timestamp: result.timestamp,
+          algorithm: selectedAlgorithms[0], // Primary algorithm
+          timestamp: Date.now(),
           inputSize: new Blob([ciphertext]).size,
-          metrics: result.performanceMetrics,
+          metrics: combinedMetrics,
           success: true,
+          layers: result.layers,
         });
       }
     } catch (error) {
@@ -134,6 +177,19 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
     const a = document.createElement("a");
     a.href = url;
     a.download = `${mode}-result-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadKeys = () => {
+    const keysText = Object.entries(keys)
+      .map(([algo, key]) => `${algo.toUpperCase()}: ${key}`)
+      .join("\n\n");
+    const blob = new Blob([keysText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `encryption-keys-${Date.now()}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -172,65 +228,115 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
         </motion.button>
       </div>
 
-      {/* Algorithm Selection */}
+      {/* Security Mode Selection */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="glass rounded-2xl p-6 shadow-xl"
       >
         <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900">
-          <Sparkles className="w-5 h-5 text-indigo-600" />
-          Select Encryption Algorithm
+          <Shield className="w-5 h-5 text-indigo-600" />
+          Security Mode (Auto-selects encryption layers)
         </h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-          {algorithms.map((algo) => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {securityModes.map((sm) => (
             <motion.button
-              key={algo.value}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setAlgorithm(algo.value)}
+              key={sm.value}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                setSecurityMode(sm.value);
+                setKeys({}); // Clear keys when mode changes
+                setLayers([]); // Clear layers
+              }}
               className={cn(
-                "p-4 rounded-xl text-center transition-all",
-                algorithm === algo.value
-                  ? "bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg"
-                  : "bg-white hover:bg-indigo-50 text-gray-900 font-bold border-2 border-indigo-200 hover:border-indigo-400"
+                "p-5 rounded-xl text-left transition-all relative overflow-hidden",
+                securityMode === sm.value
+                  ? "bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg"
+                  : "bg-white hover:bg-pink-50 text-gray-900 font-bold border-2 border-pink-200 hover:border-pink-400"
               )}
             >
-              <div className="font-bold text-lg">{algo.label}</div>
-              <div className="text-xs opacity-80 mt-1">{algo.description}</div>
+              <div className="relative z-10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="font-bold text-lg">{sm.label}</div>
+                  <div
+                    className={cn(
+                      "px-2 py-1 rounded-lg text-xs font-bold",
+                      securityMode === sm.value
+                        ? "bg-white/20 text-white"
+                        : "bg-pink-100 text-pink-700"
+                    )}
+                  >
+                    {sm.layers} Layers
+                  </div>
+                </div>
+                <div className={cn("text-sm mt-1", securityMode === sm.value ? "opacity-90" : "opacity-70")}>
+                  {sm.description}
+                </div>
+              </div>
             </motion.button>
           ))}
         </div>
       </motion.div>
 
-      {/* Security Mode */}
+      {/* Selected Algorithms Display */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1 }}
         className="glass rounded-2xl p-6 shadow-xl"
       >
-        <h3 className="text-lg font-bold mb-4 text-gray-900">Security Mode</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {securityModes.map((sm) => (
-            <motion.button
-              key={sm.value}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={() => setSecurityMode(sm.value)}
-              className={cn(
-                "p-4 rounded-xl text-left transition-all",
-                securityMode === sm.value
-                  ? "bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg"
-                  : "bg-white hover:bg-pink-50 text-gray-900 font-bold border-2 border-pink-200 hover:border-pink-400"
-              )}
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-gray-900">
+          <Layers className="w-5 h-5 text-purple-600" />
+          Encryption Layers ({selectedAlgorithms.length} algorithms)
+        </h3>
+        <div className="flex flex-wrap gap-3">
+          {selectedAlgorithms.map((algo, index) => (
+            <motion.div
+              key={algo}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: index * 0.1 }}
+              className="px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold shadow-md flex items-center gap-2"
             >
-              <div className="font-bold">{sm.label}</div>
-              <div className="text-sm opacity-80 mt-1">{sm.description}</div>
-            </motion.button>
+              <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">{index + 1}</span>
+              {algo.toUpperCase()}
+            </motion.div>
           ))}
         </div>
+        <p className="mt-3 text-sm text-gray-600">
+          Your data will be encrypted sequentially through {selectedAlgorithms.length} layers for{" "}
+          <span className="font-bold text-indigo-600">{securityMode}</span> security.
+        </p>
       </motion.div>
+
+      {/* Key Generation Info Toggle */}
+      {selectedAlgorithms.length > 0 && (
+        <div className="flex justify-center">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowLayerInfo(!showLayerInfo)}
+            className="px-6 py-2 rounded-xl bg-white border-2 border-indigo-300 text-gray-900 font-semibold hover:bg-indigo-50 transition-all"
+          >
+            {showLayerInfo ? "Hide" : "Show"} Key Generation Details
+          </motion.button>
+        </div>
+      )}
+
+      {/* Key Generation Info */}
+      <AnimatePresence>
+        {showLayerInfo && selectedAlgorithms.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <KeyGenerationInfo algorithms={selectedAlgorithms} securityMode={securityMode} />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Input/Output Area */}
       <motion.div
@@ -269,33 +375,58 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
           </div>
         </div>
 
-        {/* Key Section */}
+        {/* Keys Display */}
         <div className="mt-6 space-y-3">
           <label className="block font-bold flex items-center gap-2 text-gray-900">
             <Key className="w-5 h-5 text-amber-600" />
-            Encryption Key
+            Encryption Keys ({selectedAlgorithms.length} keys)
           </label>
+
+          {Object.keys(keys).length > 0 ? (
+            <div className="space-y-2 max-h-40 overflow-y-auto p-3 bg-gray-50 rounded-xl border-2 border-indigo-200">
+              {selectedAlgorithms.map((algo) => (
+                <div key={algo} className="p-2 bg-white rounded-lg border border-gray-200">
+                  <div className="text-xs font-bold text-indigo-600 uppercase mb-1">{algo}</div>
+                  <code className="text-xs text-gray-700 font-mono break-all">
+                    {keys[algo] || "Not generated"}
+                  </code>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-200 text-center">
+              <p className="text-sm text-gray-700">No keys generated yet. Click "Generate Keys" below.</p>
+            </div>
+          )}
+
           <div className="flex gap-3">
-            <input
-              type="text"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="Enter or generate a key..."
-              className="flex-1 p-4 rounded-xl bg-white text-gray-900 border-2 border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm shadow-md"
-            />
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={generateKey}
-              className="px-6 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-amber-600 hover:to-orange-600 transition-all"
+              onClick={generateKeys}
+              className="flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-amber-600 hover:to-orange-600 transition-all"
             >
-              Generate
+              Generate Keys
             </motion.button>
+
+            {Object.keys(keys).length > 0 && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={downloadKeys}
+                className="px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+              >
+                <Download className="w-5 h-5" />
+                Save Keys
+              </motion.button>
+            )}
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className="mt-6 flex gap-4 justify-center">
+        <div className="mt-6 flex gap-4 justify-center flex-wrap">
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
@@ -331,11 +462,25 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
               className="px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-green-600 hover:to-emerald-600 transition-all flex items-center gap-2"
             >
               <Download className="w-5 h-5" />
-              Download
+              Download Result
             </motion.button>
           )}
         </div>
       </motion.div>
+
+      {/* Encryption Flow Visualization */}
+      <AnimatePresence>
+        {layers.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ delay: 0.3 }}
+          >
+            <EncryptionFlow layers={layers} isEncrypting={mode === "encrypt"} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
