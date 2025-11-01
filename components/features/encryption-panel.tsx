@@ -156,9 +156,27 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
     }
 
     if (Object.keys(keys).length === 0) {
-      alert("Please enter the decryption keys");
+      alert("❌ No decryption keys found!\n\nPlease generate keys first or use the same keys from encryption.");
       return;
     }
+
+    // Check if all required keys exist
+    const missingKeys = selectedAlgorithms.filter(algo => !keys[algo] || keys[algo].trim() === "");
+    if (missingKeys.length > 0) {
+      alert(
+        `❌ Missing keys for: ${missingKeys.join(", ").toUpperCase()}\n\n` +
+        `Security mode: ${securityMode.toUpperCase()}\n` +
+        `Required: ${selectedAlgorithms.length} keys\n` +
+        `Found: ${Object.keys(keys).length} keys\n\n` +
+        `💡 Solution:\n` +
+        `1. Make sure you're using the SAME security mode as encryption\n` +
+        `2. Or click "Clear" and start fresh with matching mode\n` +
+        `3. Generate keys → Encrypt → Decrypt (same mode)`
+      );
+      return;
+    }
+
+    console.log(`🔓 Decrypting with ${securityMode} mode (${selectedAlgorithms.length} layers)...`);
 
     setIsProcessing(true);
     try {
