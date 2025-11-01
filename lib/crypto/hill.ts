@@ -105,12 +105,18 @@ export class HillCipher {
   }
 
   encrypt(plaintext: string, keyMatrix: number[][]): string {
-    const text = plaintext.toUpperCase().replace(/[^A-Z]/g, "");
+    // Convert to base64 to preserve all characters
+    const base64Text = btoa(unescape(encodeURIComponent(plaintext)));
+    const text = base64Text.toUpperCase().replace(/[^A-Z]/g, "");
     const size = keyMatrix.length;
     let result = "";
 
+    // Store original length for padding removal
+    const originalLength = text.length;
+
     // Pad text if needed
     const paddedText = text + "X".repeat((size - (text.length % size)) % size);
+    const paddingLength = paddedText.length - originalLength;
 
     for (let i = 0; i < paddedText.length; i += size) {
       const block = paddedText
@@ -121,11 +127,61 @@ export class HillCipher {
       result += encrypted.map((n) => String.fromCharCode(n + 65)).join("");
     }
 
-    return result;
+    // Prepend padding length (encoded as 2-char string)
+    const paddingInfo = String.fromCharCode(65 + Math.floor(paddingLength / 26)) +
+                        String.fromCharCode(65 + (paddingLength % 26));
+
+    return paddingInfo + result;
   }
 
   decrypt(ciphertext: string, keyMatrix: number[][]): string {
+    // Extract padding info
+    const paddingInfo = ciphertext.substring(0, 2);
+    const actualCiphertext = ciphertext.substring(2);
+    const paddingLength = (paddingInfo.charCodeAt(0) - 65) * 26 + (paddingInfo.charCodeAt(1) - 65);
+
     const inverseMatrix = this.invertMatrix(keyMatrix);
-    return this.encrypt(ciphertext, inverseMatrix);
+    const size = keyMatrix.length;
+    let result = "";
+
+    for (let i = 0; i < actualCiphertext.length; i += size) {
+      const block = actualCiphertext
+        .slice(i, i + size)
+        .split("")
+        .map((c) => c.charCodeAt(0) - 65);
+      const decrypted = this.multiplyMatrixVector(inverseMatrix, block);
+      result += decrypted.map((n) => String.fromCharCode(n + 65)).join("");
+    }
+
+    // Remove padding
+    if (paddingLength > 0) {
+      result = result.substring(0, result.length - paddingLength);
+    }
+
+    // Reconstruct non-alphabetic characters
+    let reconstructed = "";
+    for (const char of result) {
+      if (char >= 'A' && char <= 'Z') {
+        reconstructed += char;
+      } else if (char >= '0' && char <= '9') {
+        reconstructed += char;
+      } else {
+        // Map back common base64 characters
+        switch(char) {
+          case '+': reconstructed += '+'; break;
+          case '/': reconstructed += '/'; break;
+          case '=': reconstructed += '='; break;
+          default: break;
+        }
+      }
+    }
+
+    // Decode from base64
+    try {
+      return decodeURIComponent(escape(atob(reconstructed)));
+    } catch (e) {
+      // If base64 decode fails, return the decrypted text as-is
+      return result;
+    }
   }
 }

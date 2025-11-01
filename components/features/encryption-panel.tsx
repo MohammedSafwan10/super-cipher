@@ -23,9 +23,11 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
   const [ciphertext, setCiphertext] = useState("");
   const [keys, setKeys] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isGeneratingKeys, setIsGeneratingKeys] = useState(false);
   const [result, setResult] = useState("");
   const [layers, setLayers] = useState<EncryptionLayer[]>([]);
   const [showLayerInfo, setShowLayerInfo] = useState(true);
+  const [isSecurityModeLocked, setIsSecurityModeLocked] = useState(false);
 
   const securityModes: { value: SecurityMode; label: string; description: string; layers: number }[] = [
     { value: "high", label: "High Security", description: "5 layers - Maximum protection", layers: 5 },
@@ -36,16 +38,25 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
   // Get recommended algorithms for current security mode
   const selectedAlgorithms = encryptionManager.getRecommendedAlgorithms(securityMode);
 
-  const generateKeys = () => {
+  const generateKeys = async () => {
+    setIsGeneratingKeys(true);
     try {
       const newKeys: Record<string, string> = {};
-      selectedAlgorithms.forEach((algorithm) => {
-        newKeys[algorithm] = encryptionManager.generateKey(algorithm, securityMode);
-      });
+
+      // Generate keys one by one to show progress (RSA can be slow)
+      for (const algorithm of selectedAlgorithms) {
+        newKeys[algorithm] = await encryptionManager.generateKey(algorithm, securityMode);
+        // Small delay to allow UI updates
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+
       setKeys(newKeys);
+      setIsSecurityModeLocked(true); // Lock security mode after keys are generated
     } catch (error) {
       console.error("Key generation failed:", error);
       alert(`Failed to generate keys: ${error}`);
+    } finally {
+      setIsGeneratingKeys(false);
     }
   };
 
@@ -242,15 +253,19 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
           {securityModes.map((sm) => (
             <motion.button
               key={sm.value}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: isSecurityModeLocked ? 1 : 1.02 }}
+              whileTap={{ scale: isSecurityModeLocked ? 1 : 0.98 }}
               onClick={() => {
-                setSecurityMode(sm.value);
-                setKeys({}); // Clear keys when mode changes
-                setLayers([]); // Clear layers
+                if (!isSecurityModeLocked) {
+                  setSecurityMode(sm.value);
+                  setKeys({}); // Clear keys when mode changes
+                  setLayers([]); // Clear layers
+                }
               }}
+              disabled={isSecurityModeLocked}
               className={cn(
                 "p-5 rounded-xl text-left transition-all relative overflow-hidden",
+                isSecurityModeLocked && "opacity-60 cursor-not-allowed",
                 securityMode === sm.value
                   ? "bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg"
                   : "bg-white hover:bg-pink-50 text-gray-900 font-bold border-2 border-pink-200 hover:border-pink-400"
@@ -277,6 +292,13 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             </motion.button>
           ))}
         </div>
+        {isSecurityModeLocked && (
+          <div className="mt-4 p-3 bg-yellow-50 border-2 border-yellow-300 rounded-xl">
+            <p className="text-sm text-yellow-800 font-semibold">
+              🔒 Security mode is locked. Clear keys to change mode.
+            </p>
+          </div>
+        )}
       </motion.div>
 
       {/* Selected Algorithms Display */}
@@ -401,26 +423,58 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
           <div className="flex gap-3">
             <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: isGeneratingKeys ? 1 : 1.05 }}
+              whileTap={{ scale: isGeneratingKeys ? 1 : 0.95 }}
               onClick={generateKeys}
-              className="flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-amber-600 hover:to-orange-600 transition-all"
+              disabled={isGeneratingKeys}
+              className={cn(
+                "flex-1 px-6 py-4 rounded-xl font-semibold shadow-lg transition-all",
+                isGeneratingKeys
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-xl hover:from-amber-600 hover:to-orange-600"
+              )}
             >
-              Generate Keys
+              {isGeneratingKeys ? (
+                <span className="flex items-center gap-2 justify-center">
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Generating Keys...
+                </span>
+              ) : (
+                "Generate Keys"
+              )}
             </motion.button>
 
             {Object.keys(keys).length > 0 && (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={downloadKeys}
-                className="px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-              >
-                <Download className="w-5 h-5" />
-                Save Keys
-              </motion.button>
+              <>
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={downloadKeys}
+                  className="px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+                >
+                  <Download className="w-5 h-5" />
+                  Save Keys
+                </motion.button>
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    setKeys({});
+                    setLayers([]);
+                    setIsSecurityModeLocked(false);
+                    setResult("");
+                    setPlaintext("");
+                    setCiphertext("");
+                  }}
+                  className="px-6 py-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                >
+                  Clear
+                </motion.button>
+              </>
             )}
           </div>
         </div>

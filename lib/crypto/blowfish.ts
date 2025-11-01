@@ -30,7 +30,14 @@ export class BlowfishCipher {
   decrypt(ciphertext: string, key: string): string {
     try {
       const decrypted = CryptoJS.Blowfish.decrypt(ciphertext, key);
-      return decrypted.toString(CryptoJS.enc.Utf8);
+      const result = decrypted.toString(CryptoJS.enc.Utf8);
+
+      // Check if decryption produced valid UTF-8
+      if (!result || result.length === 0) {
+        throw new Error("Decryption produced empty or invalid result");
+      }
+
+      return result;
     } catch (error) {
       throw new Error(`Blowfish decryption failed: ${error}`);
     }

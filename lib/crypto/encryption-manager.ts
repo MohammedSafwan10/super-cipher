@@ -47,9 +47,9 @@ export class EncryptionManager {
     const endTime = performance.now();
     const endMemory = (performance as any).memory?.usedJSHeapSize || 0;
 
-    const encryptionTime = endTime - startTime;
+    const encryptionTime = Math.max(endTime - startTime, 0.001); // Minimum 0.001ms to avoid division by zero
     const memoryUsed = Math.max(0, endMemory - startMemory);
-    const throughput = dataSize / (encryptionTime / 1000); // bytes per second
+    const throughput = encryptionTime > 0 ? dataSize / (encryptionTime / 1000) : 0; // bytes per second
 
     return {
       result,
@@ -62,12 +62,12 @@ export class EncryptionManager {
     };
   }
 
-  generateKey(algorithm: CipherAlgorithm, mode: SecurityMode = "balanced"): string {
+  async generateKey(algorithm: CipherAlgorithm, mode: SecurityMode = "balanced"): Promise<string> {
     switch (algorithm) {
       case "aes":
         return this.aes.generateKey(mode);
       case "rsa":
-        const keypair = this.rsa.generateKeyPair(mode);
+        const keypair = await this.rsa.generateKeyPair(mode);
         return JSON.stringify(keypair);
       case "hill":
         const matrix = this.hill.generateKey(2);
@@ -97,8 +97,15 @@ export class EncryptionManager {
         case "aes":
           return this.aes.encrypt(plaintext, key, mode);
         case "rsa":
-          const keypair = JSON.parse(key);
-          return this.rsa.encrypt(plaintext, keypair.publicKey);
+          try {
+            const keypair = JSON.parse(key);
+            if (!keypair.publicKey || !keypair.privateKey) {
+              throw new Error("Invalid RSA key format");
+            }
+            return this.rsa.encrypt(plaintext, keypair.publicKey);
+          } catch (e) {
+            throw new Error("Invalid RSA key format: must be valid JSON with publicKey and privateKey");
+          }
         case "hill":
           const matrix = this.hill.stringToKey(key);
           return this.hill.encrypt(plaintext, matrix);
@@ -107,7 +114,13 @@ export class EncryptionManager {
         case "blowfish":
           return this.blowfish.encrypt(plaintext, key);
         case "caesar":
+          if (!key.startsWith("SHIFT-")) {
+            throw new Error("Invalid Caesar key format: must be SHIFT-N where N is a number");
+          }
           const shift = parseInt(key.replace("SHIFT-", ""));
+          if (isNaN(shift)) {
+            throw new Error("Invalid Caesar key: shift value must be a number");
+          }
           return this.caesar.encrypt(plaintext, shift);
         default:
           throw new Error(`Unknown algorithm: ${algorithm}`);
@@ -136,8 +149,15 @@ export class EncryptionManager {
         case "aes":
           return this.aes.decrypt(ciphertext, key, mode);
         case "rsa":
-          const keypair = JSON.parse(key);
-          return this.rsa.decrypt(ciphertext, keypair.privateKey);
+          try {
+            const keypair = JSON.parse(key);
+            if (!keypair.publicKey || !keypair.privateKey) {
+              throw new Error("Invalid RSA key format");
+            }
+            return this.rsa.decrypt(ciphertext, keypair.privateKey);
+          } catch (e) {
+            throw new Error("Invalid RSA key format: must be valid JSON with publicKey and privateKey");
+          }
         case "hill":
           const matrix = this.hill.stringToKey(key);
           return this.hill.decrypt(ciphertext, matrix);
@@ -146,7 +166,13 @@ export class EncryptionManager {
         case "blowfish":
           return this.blowfish.decrypt(ciphertext, key);
         case "caesar":
+          if (!key.startsWith("SHIFT-")) {
+            throw new Error("Invalid Caesar key format: must be SHIFT-N where N is a number");
+          }
           const shift = parseInt(key.replace("SHIFT-", ""));
+          if (isNaN(shift)) {
+            throw new Error("Invalid Caesar key: shift value must be a number");
+          }
           return this.caesar.decrypt(ciphertext, shift);
         default:
           throw new Error(`Unknown algorithm: ${algorithm}`);
@@ -184,7 +210,7 @@ export class EncryptionManager {
         const rsaSize = mode === "high" ? 4096 : mode === "balanced" ? 2048 : 1024;
         return `${rsaSize}-bit public/private key pair using OAEP padding`;
       case "hill":
-        return "3×3 random invertible matrix with determinant ≠ 0";
+        return "2×2 random invertible matrix with determinant ≠ 0";
       case "vigenere":
         const vigLen = mode === "high" ? 32 : mode === "balanced" ? 16 : 8;
         return `${vigLen}-character random uppercase alphabetic key`;
@@ -212,7 +238,7 @@ export class EncryptionManager {
 
     for (let i = 0; i < algorithms.length; i++) {
       const algorithm = algorithms[i];
-      const key = this.generateKey(algorithm, mode);
+      const key = await this.generateKey(algorithm, mode);
       const result = await this.encrypt(encrypted, algorithm, key, mode);
       encrypted = result.encrypted;
       keys[algorithm] = key;
@@ -233,6 +259,13 @@ export class EncryptionManager {
     keys: Record<string, string>,
     mode: SecurityMode = "high"
   ): Promise<{ decrypted: string; metrics: PerformanceMetrics[]; layers: EncryptionLayer[] }> {
+    // Validate all required keys exist
+    for (const algorithm of algorithms) {
+      if (!keys[algorithm]) {
+        throw new Error(`Missing decryption key for algorithm: ${algorithm}`);
+      }
+    }
+
     let decrypted = ciphertext;
     const metrics: PerformanceMetrics[] = [];
     const layers: EncryptionLayer[] = [];

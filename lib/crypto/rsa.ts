@@ -13,14 +13,25 @@ export class RSACipher {
     }
   }
 
-  generateKeyPair(mode: SecurityMode = "balanced"): { publicKey: string; privateKey: string } {
+  async generateKeyPair(mode: SecurityMode = "balanced"): Promise<{ publicKey: string; privateKey: string }> {
     const keySize = this.getKeySize(mode);
-    const keypair = forge.pki.rsa.generateKeyPair({ bits: keySize, workers: -1 });
 
-    return {
-      publicKey: forge.pki.publicKeyToPem(keypair.publicKey),
-      privateKey: forge.pki.privateKeyToPem(keypair.privateKey),
-    };
+    // Use workers: 2 for non-blocking generation
+    return new Promise((resolve, reject) => {
+      forge.pki.rsa.generateKeyPair(
+        { bits: keySize, workers: 2 },
+        (err, keypair) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve({
+              publicKey: forge.pki.publicKeyToPem(keypair.publicKey),
+              privateKey: forge.pki.privateKeyToPem(keypair.privateKey),
+            });
+          }
+        }
+      );
+    });
   }
 
   encrypt(plaintext: string, publicKeyPem: string): string {
@@ -41,11 +52,13 @@ export class RSACipher {
             md: forge.md.sha1.create(),
           },
         });
-        chunks.push(forge.util.encode64(encryptedChunk));
+        const base64Chunk = forge.util.encode64(encryptedChunk);
+        // Store chunk length + chunk data with unique separator
+        chunks.push(base64Chunk.length + ":" + base64Chunk);
       }
 
-      // Join chunks with separator
-      return chunks.join("||");
+      // Join chunks with unique separator that won't appear in base64
+      return chunks.join("|RSA|");
     } catch (error) {
       throw new Error(`RSA encryption failed: ${error}`);
     }
@@ -56,10 +69,17 @@ export class RSACipher {
       const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
 
       // Split ciphertext into chunks
-      const chunks = ciphertext.split("||");
+      const chunks = ciphertext.split("|RSA|");
       const decryptedChunks: string[] = [];
 
-      for (const chunk of chunks) {
+      for (const chunkData of chunks) {
+        // Extract length and actual chunk
+        const separatorIndex = chunkData.indexOf(":");
+        if (separatorIndex === -1) {
+          throw new Error("Invalid chunk format");
+        }
+
+        const chunk = chunkData.substring(separatorIndex + 1);
         const encrypted = forge.util.decode64(chunk);
         const decrypted = privateKey.decrypt(encrypted, "RSA-OAEP", {
           md: forge.md.sha256.create(),
