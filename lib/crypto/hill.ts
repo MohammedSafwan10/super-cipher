@@ -105,19 +105,30 @@ export class HillCipher {
   }
 
   encrypt(plaintext: string, keyMatrix: number[][]): string {
-    // Convert to base64 to preserve all characters
-    const base64Text = btoa(unescape(encodeURIComponent(plaintext)));
-    const text = base64Text.toUpperCase().replace(/[^A-Z]/g, "");
     const size = keyMatrix.length;
-    let result = "";
+
+    // Encode each character as a 3-letter sequence to preserve ALL data
+    // Each char code is converted to base-26 representation using letters A-Z
+    let encoded = "";
+    for (let i = 0; i < plaintext.length; i++) {
+      const code = plaintext.charCodeAt(i);
+      // Convert to 3-letter sequence (supports char codes 0-17575)
+      const a = Math.floor(code / 676);
+      const b = Math.floor((code % 676) / 26);
+      const c = code % 26;
+      encoded += String.fromCharCode(65 + a) +
+                 String.fromCharCode(65 + b) +
+                 String.fromCharCode(65 + c);
+    }
 
     // Store original length for padding removal
-    const originalLength = text.length;
+    const originalLength = encoded.length;
 
     // Pad text if needed
-    const paddedText = text + "X".repeat((size - (text.length % size)) % size);
+    const paddedText = encoded + "X".repeat((size - (encoded.length % size)) % size);
     const paddingLength = paddedText.length - originalLength;
 
+    let result = "";
     for (let i = 0; i < paddedText.length; i += size) {
       const block = paddedText
         .slice(i, i + size)
@@ -158,30 +169,16 @@ export class HillCipher {
       result = result.substring(0, result.length - paddingLength);
     }
 
-    // Reconstruct non-alphabetic characters
-    let reconstructed = "";
-    for (const char of result) {
-      if (char >= 'A' && char <= 'Z') {
-        reconstructed += char;
-      } else if (char >= '0' && char <= '9') {
-        reconstructed += char;
-      } else {
-        // Map back common base64 characters
-        switch(char) {
-          case '+': reconstructed += '+'; break;
-          case '/': reconstructed += '/'; break;
-          case '=': reconstructed += '='; break;
-          default: break;
-        }
-      }
+    // Decode 3-letter sequences back to original characters
+    let decoded = "";
+    for (let i = 0; i < result.length; i += 3) {
+      const a = result.charCodeAt(i) - 65;
+      const b = result.charCodeAt(i + 1) - 65;
+      const c = result.charCodeAt(i + 2) - 65;
+      const charCode = a * 676 + b * 26 + c;
+      decoded += String.fromCharCode(charCode);
     }
 
-    // Decode from base64
-    try {
-      return decodeURIComponent(escape(atob(reconstructed)));
-    } catch (e) {
-      // If base64 decode fails, return the decrypted text as-is
-      return result;
-    }
+    return decoded;
   }
 }
