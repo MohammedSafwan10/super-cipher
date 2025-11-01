@@ -7,7 +7,6 @@ import { TypingText } from "@/components/ui/typing-text";
 import { EncryptionPanel } from "@/components/features/encryption-panel";
 import { PerformanceMetricsDisplay } from "@/components/features/performance-metrics";
 import { EncryptionHistory } from "@/components/features/encryption-history";
-import { FileUpload } from "@/components/features/file-upload";
 import { PerformanceMetrics, HistoryEntry } from "@/lib/crypto/types";
 
 export default function Home() {
@@ -16,7 +15,6 @@ export default function Home() {
     Array<{ timestamp: number; time: number; throughput: number }>
   >([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [inputText, setInputText] = useState("");
 
   const handlePerformanceUpdate = (metrics: PerformanceMetrics) => {
     setCurrentMetrics(metrics);
@@ -38,10 +36,6 @@ export default function Home() {
     setHistory([]);
     setMetricsHistory([]);
     setCurrentMetrics(null);
-  };
-
-  const handleFileRead = (content: string, filename: string) => {
-    setInputText(content);
   };
 
   return (
@@ -89,9 +83,6 @@ export default function Home() {
           </div>
         </motion.div>
 
-        {/* File Upload */}
-        <FileUpload onFileRead={handleFileRead} />
-
         {/* Main Encryption Panel */}
         <EncryptionPanel
           onPerformanceUpdate={handlePerformanceUpdate}
@@ -114,7 +105,7 @@ export default function Home() {
           {[
             {
               title: "Multi-Algorithm Support",
-              description: "AES, RSA, Blowfish, Vigenère, and Hill cipher",
+              description: "AES, RSA, Caesar, Blowfish, Vigenère, and Hill cipher",
               icon: "🔐",
             },
             {
