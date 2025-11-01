@@ -26,13 +26,26 @@ export class RSACipher {
   encrypt(plaintext: string, publicKeyPem: string): string {
     try {
       const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
-      const encrypted = publicKey.encrypt(plaintext, "RSA-OAEP", {
-        md: forge.md.sha256.create(),
-        mgf1: {
-          md: forge.md.sha1.create(),
-        },
-      });
-      return forge.util.encode64(encrypted);
+
+      // Get max chunk size for RSA (key_size/8 - 42 for OAEP padding)
+      const keySize = publicKey.n.bitLength();
+      const maxChunkSize = Math.floor(keySize / 8) - 42;
+
+      // Split plaintext into chunks
+      const chunks: string[] = [];
+      for (let i = 0; i < plaintext.length; i += maxChunkSize) {
+        const chunk = plaintext.substring(i, i + maxChunkSize);
+        const encryptedChunk = publicKey.encrypt(chunk, "RSA-OAEP", {
+          md: forge.md.sha256.create(),
+          mgf1: {
+            md: forge.md.sha1.create(),
+          },
+        });
+        chunks.push(forge.util.encode64(encryptedChunk));
+      }
+
+      // Join chunks with separator
+      return chunks.join("||");
     } catch (error) {
       throw new Error(`RSA encryption failed: ${error}`);
     }
@@ -41,14 +54,24 @@ export class RSACipher {
   decrypt(ciphertext: string, privateKeyPem: string): string {
     try {
       const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-      const encrypted = forge.util.decode64(ciphertext);
-      const decrypted = privateKey.decrypt(encrypted, "RSA-OAEP", {
-        md: forge.md.sha256.create(),
-        mgf1: {
-          md: forge.md.sha1.create(),
-        },
-      });
-      return decrypted;
+
+      // Split ciphertext into chunks
+      const chunks = ciphertext.split("||");
+      const decryptedChunks: string[] = [];
+
+      for (const chunk of chunks) {
+        const encrypted = forge.util.decode64(chunk);
+        const decrypted = privateKey.decrypt(encrypted, "RSA-OAEP", {
+          md: forge.md.sha256.create(),
+          mgf1: {
+            md: forge.md.sha1.create(),
+          },
+        });
+        decryptedChunks.push(decrypted);
+      }
+
+      // Join decrypted chunks
+      return decryptedChunks.join("");
     } catch (error) {
       throw new Error(`RSA decryption failed: ${error}`);
     }
