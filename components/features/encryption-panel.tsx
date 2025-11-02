@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Unlock, Key, Download, Shield, Layers } from "lucide-react";
+import { Lock, Unlock, Key, Download, Upload, Shield, Layers } from "lucide-react";
 import { EncryptionManager } from "@/lib/crypto/encryption-manager";
 import { CipherAlgorithm, SecurityMode, EncryptionLayer } from "@/lib/crypto/types";
 import { cn, formatTime, formatBytes } from "@/lib/utils";
@@ -253,22 +253,109 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
   };
 
   const downloadKeys = () => {
-    const keysText = Object.entries(keys)
-      .map(([algo, key]) => `${algo.toUpperCase()}: ${key}`)
-      .join("\n\n");
-    const blob = new Blob([keysText], { type: "text/plain" });
+    // Create JSON structure with metadata
+    const keyExport = {
+      securityMode: securityMode,
+      timestamp: Date.now(),
+      algorithms: selectedAlgorithms,
+      keys: keys,
+      version: "1.0"
+    };
+
+    const jsonString = JSON.stringify(keyExport, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `encryption-keys-${Date.now()}.txt`;
+    a.download = `encryption-keys-${securityMode}-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
+
+    console.log(`✅ Keys saved for ${securityMode} mode with ${selectedAlgorithms.length} algorithms`);
+  };
+
+  const loadKeys = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file extension
+    if (!file.name.endsWith('.json')) {
+      alert("❌ Invalid file type!\n\nPlease upload a .json key file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const keyData = JSON.parse(content);
+
+        // Validate JSON structure
+        if (!keyData.securityMode || !keyData.algorithms || !keyData.keys) {
+          throw new Error("Invalid key file format");
+        }
+
+        // Check if security mode matches
+        if (keyData.securityMode !== securityMode) {
+          const switchMode = confirm(
+            `⚠️ Security Mode Mismatch!\n\n` +
+            `Key file is for: ${keyData.securityMode.toUpperCase()} mode\n` +
+            `Current mode: ${securityMode.toUpperCase()}\n\n` +
+            `Click OK to switch to ${keyData.securityMode.toUpperCase()} mode, or Cancel to keep current mode.`
+          );
+
+          if (switchMode) {
+            setSecurityMode(keyData.securityMode);
+          } else {
+            return;
+          }
+        }
+
+        // Validate all required keys are present
+        const requiredAlgorithms = encryptionManager.getRecommendedAlgorithms(keyData.securityMode);
+        const missingKeys = requiredAlgorithms.filter(algo => !keyData.keys[algo]);
+
+        if (missingKeys.length > 0) {
+          alert(
+            `❌ Incomplete key file!\n\n` +
+            `Missing keys for: ${missingKeys.join(", ").toUpperCase()}\n\n` +
+            `This file is corrupted or incomplete. Please use a valid key file.`
+          );
+          return;
+        }
+
+        // Load keys into state
+        setKeys(keyData.keys);
+        setIsSecurityModeLocked(true);
+
+        console.log(`✅ Loaded ${Object.keys(keyData.keys).length} keys for ${keyData.securityMode} mode`);
+        alert(
+          `✅ Keys Loaded Successfully!\n\n` +
+          `Mode: ${keyData.securityMode.toUpperCase()}\n` +
+          `Algorithms: ${Object.keys(keyData.keys).length}\n\n` +
+          `You can now decrypt your message.`
+        );
+
+      } catch (error) {
+        console.error("Failed to load keys:", error);
+        alert(
+          `❌ Failed to load key file!\n\n` +
+          `Error: ${error instanceof Error ? error.message : "Invalid JSON file"}\n\n` +
+          `Please make sure you're using a valid encryption key file.`
+        );
+      }
+    };
+
+    reader.readAsText(file);
+
+    // Reset file input so same file can be selected again
+    event.target.value = '';
   };
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
       {/* Mode Selector */}
-      <div className="flex gap-4 justify-center">
+      <div className="flex gap-3 sm:gap-4 justify-center flex-wrap">
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
@@ -277,7 +364,7 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             setResult("");
           }}
           className={cn(
-            "px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all",
+            "flex-1 sm:flex-none px-6 sm:px-8 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all",
             mode === "encrypt"
               ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg"
               : "bg-white hover:bg-indigo-50 text-gray-900 font-semibold border-2 border-indigo-200 hover:border-indigo-400"
@@ -294,7 +381,7 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             setResult("");
           }}
           className={cn(
-            "px-8 py-3 rounded-xl font-semibold flex items-center gap-2 transition-all",
+            "flex-1 sm:flex-none px-6 sm:px-8 py-3 rounded-xl font-semibold flex items-center justify-center gap-2 transition-all",
             mode === "decrypt"
               ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg"
               : "bg-white hover:bg-purple-50 text-gray-900 font-semibold border-2 border-purple-200 hover:border-purple-400"
@@ -487,14 +574,23 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            {/* Hidden file input for loading keys */}
+            <input
+              type="file"
+              id="load-keys-input"
+              accept=".json"
+              onChange={loadKeys}
+              className="hidden"
+            />
+
             <motion.button
               whileHover={{ scale: isGeneratingKeys ? 1 : 1.05 }}
               whileTap={{ scale: isGeneratingKeys ? 1 : 0.95 }}
               onClick={generateKeys}
               disabled={isGeneratingKeys}
               className={cn(
-                "flex-1 px-6 py-4 rounded-xl font-semibold shadow-lg transition-all",
+                "w-full sm:flex-1 px-6 py-4 rounded-xl font-semibold shadow-lg transition-all",
                 isGeneratingKeys
                   ? "bg-gray-400 cursor-not-allowed"
                   : "bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:shadow-xl hover:from-amber-600 hover:to-orange-600"
@@ -510,6 +606,21 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
               )}
             </motion.button>
 
+            {/* Load Keys button - always show in decrypt mode */}
+            {mode === "decrypt" && !isGeneratingKeys && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => document.getElementById('load-keys-input')?.click()}
+                className="w-full sm:flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 justify-center"
+              >
+                <Upload className="w-5 h-5" />
+                Load Keys
+              </motion.button>
+            )}
+
             {Object.keys(keys).length > 0 && (
               <>
                 <motion.button
@@ -518,7 +629,7 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={downloadKeys}
-                  className="px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+                  className="w-full sm:w-auto px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 justify-center"
                 >
                   <Download className="w-5 h-5" />
                   Save Keys
@@ -536,7 +647,7 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
                     setPlaintext("");
                     setCiphertext("");
                   }}
-                  className="px-6 py-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                  className="w-full sm:w-auto px-6 py-4 rounded-xl bg-gradient-to-r from-red-500 to-rose-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all justify-center flex items-center gap-2"
                 >
                   Clear
                 </motion.button>
@@ -553,19 +664,19 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             onClick={mode === "encrypt" ? handleEncrypt : handleDecrypt}
             disabled={isProcessing}
             className={cn(
-              "px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition-all",
+              "w-full sm:w-auto px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition-all",
               isProcessing
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white shadow-xl"
             )}
           >
             {isProcessing ? (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 justify-center">
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 Processing...
               </span>
             ) : (
-              <span className="flex items-center gap-2">
+              <span className="flex items-center gap-2 justify-center">
                 {mode === "encrypt" ? <Lock className="w-5 h-5" /> : <Unlock className="w-5 h-5" />}
                 {mode === "encrypt" ? "Encrypt" : "Decrypt"}
               </span>
@@ -579,7 +690,7 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={downloadResult}
-              className="px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-green-600 hover:to-emerald-600 transition-all flex items-center gap-2"
+              className="w-full sm:w-auto px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl hover:from-green-600 hover:to-emerald-600 transition-all flex items-center gap-2 justify-center"
             >
               <Download className="w-5 h-5" />
               Download Result
