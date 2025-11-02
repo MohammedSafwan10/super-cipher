@@ -575,15 +575,6 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
           )}
 
           <div className="flex flex-wrap gap-3">
-            {/* Hidden file input for loading keys */}
-            <input
-              type="file"
-              id="load-keys-input"
-              accept=".json"
-              onChange={loadKeys}
-              className="hidden"
-            />
-
             <motion.button
               whileHover={{ scale: isGeneratingKeys ? 1 : 1.05 }}
               whileTap={{ scale: isGeneratingKeys ? 1 : 0.95 }}
@@ -608,17 +599,26 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
             {/* Load Keys button - always show in decrypt mode */}
             {mode === "decrypt" && !isGeneratingKeys && (
-              <motion.button
-                initial={{ opacity: 0, scale: 0.8 }}
-                animate={{ opacity: 1, scale: 1 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => document.getElementById('load-keys-input')?.click()}
-                className="w-full sm:flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 justify-center"
-              >
-                <Upload className="w-5 h-5" />
-                Load Keys
-              </motion.button>
+              <>
+                <input
+                  type="file"
+                  id="load-keys-input"
+                  accept=".json,application/json"
+                  onChange={loadKeys}
+                  className="hidden"
+                />
+                <motion.label
+                  htmlFor="load-keys-input"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="w-full sm:flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 justify-center cursor-pointer"
+                >
+                  <Upload className="w-5 h-5" />
+                  Load Keys
+                </motion.label>
+              </>
             )}
 
             {Object.keys(keys).length > 0 && (
