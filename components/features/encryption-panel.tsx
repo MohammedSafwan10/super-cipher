@@ -101,15 +101,18 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
     setIsProcessing(true);
     try {
+      // Pass existing keys to encryption manager
       const result = await encryptionManager.multiLayerEncrypt(
         plaintext,
         selectedAlgorithms,
-        securityMode
+        securityMode,
+        keys // Use pre-generated keys if they exist
       );
 
       setCiphertext(result.encrypted);
       setResult(result.encrypted);
       setLayers(result.layers);
+      // Update keys with the ones used (in case any were newly generated)
       setKeys(result.keys);
 
       // Calculate combined metrics
@@ -221,22 +224,11 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
         });
       }
     } catch (error) {
-      console.error("Decryption failed:", error);
+      console.error("❌ Decryption failed:", error);
       const errorMsg = error instanceof Error ? error.message : String(error);
 
-      // Show helpful message for common issues
-      if (errorMsg.includes("Missing keys") || errorMsg.includes("RSA key")) {
-        alert(
-          `❌ ${errorMsg}\n\n` +
-          `💡 Solution:\n` +
-          `1. Click the "Clear" button below\n` +
-          `2. Generate keys again\n` +
-          `3. Re-encrypt your text\n` +
-          `4. Then decrypt with the new keys`
-        );
-      } else {
-        alert(`Decryption failed: ${errorMsg}`);
-      }
+      // Show helpful message - the error already contains detailed info from encryption-manager
+      alert(`${errorMsg}`);
     } finally {
       setIsProcessing(false);
     }
@@ -570,7 +562,16 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
             </div>
           ) : (
             <div className="p-4 bg-amber-50 rounded-xl border-2 border-amber-200 text-center">
-              <p className="text-sm text-gray-700">No keys generated yet. Click "Generate Keys" below.</p>
+              <p className="text-sm font-semibold text-amber-800">⚠️ No keys generated yet!</p>
+              <p className="text-xs text-amber-700 mt-1">Click "Generate Keys" below before encrypting.</p>
+            </div>
+          )}
+
+          {mode === "encrypt" && Object.keys(keys).length > 0 && (
+            <div className="p-3 bg-green-50 border-2 border-green-300 rounded-xl">
+              <p className="text-sm text-green-800 font-semibold">
+                ✅ Keys ready! You can now encrypt. These keys will be used for encryption.
+              </p>
             </div>
           )}
 
@@ -599,7 +600,11 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
 
             {/* Load Keys button - always show in decrypt mode */}
             {mode === "decrypt" && !isGeneratingKeys && (
-              <>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="w-full"
+              >
                 <input
                   type="file"
                   id="load-keys-input"
@@ -609,8 +614,6 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
                 />
                 <motion.label
                   htmlFor="load-keys-input"
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="w-full sm:flex-1 px-6 py-4 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all flex items-center gap-2 justify-center cursor-pointer"
@@ -618,7 +621,12 @@ export function EncryptionPanel({ onPerformanceUpdate, onHistoryAdd }: Encryptio
                   <Upload className="w-5 h-5" />
                   Load Keys
                 </motion.label>
-              </>
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs text-blue-800 font-medium">
+                    ⚠️ Keys must match the ones used for encryption. Check browser console (F12) for detailed decryption logs.
+                  </p>
+                </div>
+              </motion.div>
             )}
 
             {Object.keys(keys).length > 0 && (

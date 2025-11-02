@@ -237,16 +237,33 @@ export class EncryptionManager {
   async multiLayerEncrypt(
     plaintext: string,
     algorithms: CipherAlgorithm[],
-    mode: SecurityMode = "high"
+    mode: SecurityMode = "high",
+    existingKeys?: Record<string, string>
   ): Promise<{ encrypted: string; keys: Record<string, string>; metrics: PerformanceMetrics[]; layers: EncryptionLayer[] }> {
     let encrypted = plaintext;
     const keys: Record<string, string> = {};
     const metrics: PerformanceMetrics[] = [];
     const layers: EncryptionLayer[] = [];
 
+    console.log(`🔐 Starting multi-layer encryption with ${algorithms.length} layers (${mode.toUpperCase()} mode)`);
+    console.log(`📋 Algorithms (in order):`, algorithms);
+    console.log(`📝 Original plaintext length: ${plaintext.length} characters`);
+    console.log(`🔑 Using existing keys: ${existingKeys ? 'YES' : 'NO (generating new)'}\n`);
+
     for (let i = 0; i < algorithms.length; i++) {
       const algorithm = algorithms[i];
-      const key = await this.generateKey(algorithm, mode);
+      console.log(`\n🔑 Layer ${i + 1}/${algorithms.length}: Encrypting with ${algorithm.toUpperCase()}`);
+      console.log(`   Input length: ${encrypted.length} characters`);
+      
+      // Use existing key if provided, otherwise generate new one
+      const key = existingKeys?.[algorithm] || await this.generateKey(algorithm, mode);
+      
+      if (existingKeys?.[algorithm]) {
+        console.log(`   ✅ Using pre-generated key`);
+      } else {
+        console.log(`   ⚠️ Generating NEW key (no existing key found)`);
+      }
+      
       const result = await this.encrypt(encrypted, algorithm, key, mode);
       encrypted = result.encrypted;
       keys[algorithm] = key;
@@ -256,7 +273,13 @@ export class EncryptionManager {
         key,
         order: i + 1,
       });
+      
+      console.log(`   ✅ Success! Output length: ${encrypted.length} characters`);
     }
+
+    console.log(`\n✅ Multi-layer encryption completed!`);
+    console.log(`📦 Final ciphertext length: ${encrypted.length} characters`);
+    console.log(`🔑 Keys used: ${Object.keys(keys).length}\n`);
 
     return { encrypted, keys, metrics, layers };
   }
@@ -282,19 +305,53 @@ export class EncryptionManager {
     const metrics: PerformanceMetrics[] = [];
     const layers: EncryptionLayer[] = [];
 
+    console.log(`🔓 Starting multi-layer decryption with ${algorithms.length} layers`);
+    console.log(`📋 Algorithms (reverse order):`, [...algorithms].reverse());
+
     // Decrypt in reverse order
     for (let i = algorithms.length - 1; i >= 0; i--) {
       const algorithm = algorithms[i];
       const key = keys[algorithm];
-      const result = await this.decrypt(decrypted, algorithm, key, mode);
-      decrypted = result.decrypted;
-      metrics.push(result.performanceMetrics);
-      layers.push({
-        algorithm,
-        key,
-        order: algorithms.length - i,
-      });
+      
+      console.log(`\n🔑 Layer ${algorithms.length - i}/${algorithms.length}: Decrypting with ${algorithm.toUpperCase()}`);
+      console.log(`   Input length: ${decrypted.length} characters`);
+      console.log(`   Input preview: ${decrypted.substring(0, 50)}...`);
+      
+      try {
+        const result = await this.decrypt(decrypted, algorithm, key, mode);
+        decrypted = result.decrypted;
+        console.log(`   ✅ Success! Output length: ${decrypted.length} characters`);
+        console.log(`   Output preview: ${decrypted.substring(0, 50)}...`);
+        
+        metrics.push(result.performanceMetrics);
+        layers.push({
+          algorithm,
+          key,
+          order: algorithms.length - i,
+        });
+      } catch (error) {
+        console.error(`   ❌ Decryption failed at layer ${algorithms.length - i} (${algorithm.toUpperCase()})`);
+        console.error(`   Error:`, error);
+        
+        // Provide helpful error message
+        const layerInfo = `Layer ${algorithms.length - i}/${algorithms.length} (${algorithm.toUpperCase()})`;
+        throw new Error(
+          `Decryption failed at ${layerInfo}\n\n` +
+          `❌ ${error}\n\n` +
+          `💡 Common causes:\n` +
+          `1. The keys don't match the ones used for encryption\n` +
+          `2. The ciphertext was encrypted with a different security mode\n` +
+          `3. The ciphertext is corrupted or modified\n\n` +
+          `✅ Solution:\n` +
+          `• Make sure you're using the EXACT same keys that encrypted this text\n` +
+          `• Verify the security mode matches (currently: ${mode.toUpperCase()})\n` +
+          `• Try encrypting and decrypting in the same session first`
+        );
+      }
     }
+
+    console.log(`\n✅ Multi-layer decryption completed successfully!`);
+    console.log(`📝 Final plaintext length: ${decrypted.length} characters\n`);
 
     return { decrypted, metrics, layers };
   }
